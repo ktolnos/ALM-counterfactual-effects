@@ -1,5 +1,5 @@
 #common
-agent: 'alm'
+agent: 'alm_diff'
 device: 'cuda'
 seed: 1
 

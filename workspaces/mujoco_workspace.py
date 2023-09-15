@@ -30,15 +30,16 @@ class MujocoWorkspace:
         torch.cuda.manual_seed_all(self.cfg.seed)
 
     def _explore(self):
-        state, done = self.train_env.reset(), False
+        state, info = self.train_env.reset(seed=self.cfg.seed)
         
         for _ in range(1, self.cfg.explore_steps):
             action = self.train_env.action_space.sample()
-            next_state, reward, done, info = self.train_env.step(action)
-            self.agent.env_buffer.push((state, action, reward, next_state, False if info.get("TimeLimit.truncated", False) else done))
+            next_state, reward, done, trunc, info = self.train_env.step(action)
+            self.agent.env_buffer.push((state, action, reward, next_state, done and not trunc))
 
             if done:
-                state, done = self.train_env.reset(), False
+                state, info = self.train_env.reset(seed=self.cfg.seed)
+                done = False
             else:
                 state = next_state
             
@@ -46,12 +47,15 @@ class MujocoWorkspace:
         self._explore()
         self._eval()
 
-        state, done, episode_start_time = self.train_env.reset(), False, time.time()
+        state, info = self.train_env.reset(seed=self.cfg.seed)
+        done = False
+        episode_start_time = time.time()
         
         for _ in range(1, self.cfg.num_train_steps-self.cfg.explore_steps+1):  
 
             action = self.agent.get_action(state, self._train_step)
-            next_state, reward, done, info = self.train_env.step(action)
+            next_state, reward, done, trunc, info = self.train_env.step(action)
+            done = done or trunc
             self._train_step += 1
 
             self.agent.env_buffer.push((state, action, reward, next_state, False if info.get("TimeLimit.truncated", False) else done))
@@ -74,7 +78,9 @@ class MujocoWorkspace:
                     episode_metrics['steps_per_second'] = info["episode"]["l"]/(time.time() - episode_start_time)
                     episode_metrics['env_buffer_length'] = len(self.agent.env_buffer)
                     wandb.log(episode_metrics, step=self._train_step)
-                state, done, episode_start_time = self.train_env.reset(), False, time.time()
+                state, info = self.train_env.reset(seed=self.cfg.seed)
+                done = False
+                episode_start_time = time.time()
             else:
                 state = next_state
 
@@ -85,10 +91,11 @@ class MujocoWorkspace:
         steps = 0
         for _ in range(self.cfg.num_eval_episodes):
             done = False 
-            state = self.eval_env.reset()
+            state, info = self.eval_env.reset(seed=self.cfg.seed)
             while not done:
                 action = self.agent.get_action(state, self._train_step, True)
-                next_state, _, done ,info = self.eval_env.step(action)
+                next_state, _, done, trunc, info = self.eval_env.step(action)
+                done = done or trunc
                 state = next_state
                 
             returns += info["episode"]["r"]
@@ -110,10 +117,11 @@ class MujocoWorkspace:
     def _render_episodes(self, record):
         frames = []
         done = False 
-        state = self.eval_env.reset()
+        state, info = self.eval_env.reset(seed=self.cfg.seed)
         while not done:
             action = self.agent.get_action(state, self._train_step, True)
-            next_state, _, done, info = self.eval_env.step(action)
+            next_state, _, done, trunc, info = self.eval_env.step(action)
+            done = done or trunc
             self.eval_env.render()
             state = next_state
         if record:
@@ -148,7 +156,7 @@ class MujocoWorkspace:
         n_mc_cutoff = 350
 
         while final_mc_list.shape[0] < n_mc_eval:
-            o = self.eval_env.reset()       
+            o, i = self.eval_env.reset(seed=self.cfg.seed)
             reward_list, obs_list, act_list = [], [], []
             r, d, ep_ret, ep_len = 0, False, 0, 0
 
@@ -156,7 +164,8 @@ class MujocoWorkspace:
                 a = self.agent.get_action(o, self._train_step, True)
                 obs_list.append(o)
                 act_list.append(a)
-                o, r, d, _ = self.eval_env.step(a)
+                o, r, d, t, _ = self.eval_env.step(a)
+                d = d or t
                 ep_ret += r
                 ep_len += 1
                 reward_list.append(r)
