@@ -108,7 +108,7 @@ class AlmDiffAgent(object):
             log = False 
 
         self.update_representation(std, step, log, metrics)
-        self.update_rest(std, step, log, metrics)
+        # self.update_rest(std, step, log, metrics)
 
         if step%self.target_update_interval==0:
             utils.soft_update(self.encoder_target, self.encoder, self.tau)
@@ -117,8 +117,8 @@ class AlmDiffAgent(object):
         if log: 
             wandb.log(metrics, step=step)  
 
-    def update_representation(self, std, step, log, metrics):    
-        state_seq, action_seq, reward_seq, next_state_seq, done_seq = self.env_buffer.sample_seq(self.seq_len, self.batch_size)
+    def update_representation(self, std, step, log, metrics):
+        state_seq, action_seq, reward_seq, next_state_seq, done_seq, trunc_seq = self.env_buffer.sample_seq(self.seq_len, self.batch_size)
         state_seq = torch.FloatTensor(state_seq).to(self.device)
         next_state_seq = torch.FloatTensor(next_state_seq).to(self.device)
         action_seq = torch.FloatTensor(action_seq).to(self.device)
@@ -135,6 +135,36 @@ class AlmDiffAgent(object):
         if log:
             metrics['alm_loss'] = alm_loss.item()
             metrics['model_grad_norm'] = model_grad_norm.item()
+
+        # update rest
+        state_batch = state_seq[0]
+        next_state_batch = next_state_seq[0]
+        action_batch = action_seq[0]
+        reward_batch = reward_seq[0]
+        done_batch = done_seq[0]
+        discount_batch = self.gamma * (1 - done_batch)
+
+        with torch.no_grad():
+            z_dist = self.encoder_target(state_batch)
+            z_next_prior_dist = self.model(z_dist.sample(), action_batch)
+            z_next_dist = self.encoder_target(next_state_batch)
+
+        # update reward and classifier
+        self.update_reward(z_dist.sample(), action_batch, reward_batch, z_next_dist.sample(),
+                           z_next_prior_dist.sample(), log, metrics)
+
+        # update critic
+        self.update_critic(z_dist.sample(), action_batch, reward_batch, z_next_dist.sample(), discount_batch, std, log,
+                           metrics)
+
+        # update actor
+        with torch.no_grad():
+            z_seq_dist = self.encoder_target(state_seq)
+        self.update_actor(z_seq_dist, std, log, metrics)
+
+        if log:
+            metrics['seq_len'] = self.seq_len
+            metrics['mse_loss'] = F.mse_loss(z_next_dist.sample(), z_next_prior_dist.sample()).item()
 
     def alm_loss(self, state_seq, action_seq, next_state_seq, std, step, log, metrics):
         z_dist = self.encoder(state_seq[0])
@@ -191,33 +221,7 @@ class AlmDiffAgent(object):
             metrics['alm_q_batch'] = Q.mean().item()
         return Q
 
-    def update_rest(self, std, step, log, metrics):
-        state_batch, action_batch, reward_batch, next_state_batch, done_batch = self.env_buffer.sample(self.batch_size)
-        state_batch = torch.FloatTensor(state_batch).to(self.device)
-        next_state_batch = torch.FloatTensor(next_state_batch).to(self.device)
-        action_batch = torch.FloatTensor(action_batch).to(self.device)
-        reward_batch = torch.FloatTensor(reward_batch).to(self.device)
-        done_batch = torch.FloatTensor(done_batch).to(self.device)  
-        discount_batch = self.gamma*(1-done_batch)
 
-        with torch.no_grad():
-            z_dist = self.encoder_target(state_batch)
-            z_next_prior_dist = self.model(z_dist.sample(), action_batch)
-            z_next_dist = self.encoder_target(next_state_batch)
-
-        #update reward and classifier
-        self.update_reward(z_dist.sample(), action_batch, reward_batch, z_next_dist.sample(), z_next_prior_dist.sample(), log, metrics)
-        
-        #update critic
-        self.update_critic(z_dist.sample(), action_batch, reward_batch, z_next_dist.sample(), discount_batch, std, log, metrics)
-        
-        #update actor
-        self.update_actor(z_dist.sample(), std, log, metrics) 
-        
-        if log:
-            metrics['seq_len'] = self.seq_len
-            metrics['mse_loss'] = F.mse_loss(z_next_dist.sample(), z_next_prior_dist.sample()).item()
-    
     def update_reward(self, z_batch, action_batch, reward_batch, z_next_batch, z_next_prior_batch, log, metrics):
         reward_loss = self._extrinsic_reward_loss(z_batch, action_batch, reward_batch.unsqueeze(-1), log, metrics)
         classifier_loss = self._intrinsic_reward_loss(z_batch, action_batch, z_next_batch, z_next_prior_batch, log, metrics)
@@ -282,9 +286,9 @@ class AlmDiffAgent(object):
             metrics['max_q_target'] = torch.max(target_Q).item()
             metrics['critic_loss'] = critic_loss.item()
             metrics['critic_grad_norm'] = critic_grad_norm.mean()
-    
-    def update_actor(self, z_batch, std, log, metrics):
-        actor_loss = self._lambda_svg_loss(z_batch, std, log, metrics)
+
+    def update_actor(self, z_seq_dist, std, log, metrics):
+        actor_loss = self._lambda_svg_loss(z_seq_dist, std, log, metrics)
 
         self.actor_opt.zero_grad()
         actor_loss.backward()
@@ -304,9 +308,9 @@ class AlmDiffAgent(object):
         actor_loss = -Q.mean()
         return actor_loss
 
-    def _lambda_svg_loss(self, z_batch, std, log, metrics):
+    def _lambda_svg_loss(self, z_seq_dist, std, log, metrics):
         actor_loss = 0
-        z_seq, action_seq = self._rollout_imagination(z_batch, std)
+        z_seq, action_seq = self._rollout_imagination(z_seq_dist, std)
 
         with utils.FreezeParameters([self.model, self.reward, self.classifier, self.critic]):
             reward = self.reward(z_seq[:-1], action_seq[:-1])
@@ -335,8 +339,9 @@ class AlmDiffAgent(object):
             metrics['action_std'] = std 
 
         return actor_loss
-        
-    def _rollout_imagination(self, z_batch, std):
+
+    def _rollout_imagination(self, z_seq_dist, std):
+        z_batch = z_seq_dist.sample()[0]
         z_seq = [z_batch]
         action_seq = []
         with utils.FreezeParameters([self.model]):

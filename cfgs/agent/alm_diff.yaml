@@ -1,7 +1,7 @@
 #common
 agent: 'alm_diff'
 device: 'cuda'
-seed: 1
+seed: 3
 
 #benchmark
 benchmark: 'gym'
@@ -44,7 +44,7 @@ num_eval_episodes: 5
 
 #logging
 wandb_log: True
-wandb_run_name: 'ALM-model+model'
+wandb_run_name: 'ALM-pred-diff'
 log_interval: 500
 
 #saving

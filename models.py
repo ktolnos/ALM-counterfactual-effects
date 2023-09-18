@@ -56,6 +56,39 @@ class ModelPrior(nn.Module):
         std = self.std_min  + F.softplus(std-self.std_min) 
         return td.independent.Independent(td.Normal(mean, std), 1)
 
+
+class ModelDiffPrior(nn.Module):
+    def __init__(self, latent_dims, action_dims, hidden_dims, num_layers=2):
+        super().__init__()
+        self.latent_dims = latent_dims
+        self.action_dims = action_dims
+        self.hidden_dims = hidden_dims
+        self.num_layers = num_layers
+        self.std_min = 0.1
+        self.std_max = 10.0
+        self.model = self._build_model()
+        self.apply(utils.weight_init)
+
+    def _build_model(self):
+        model = [nn.Linear(self.action_dims + self.latent_dims, self.hidden_dims)]
+        model += [nn.ELU()]
+        for i in range(self.num_layers-1):
+            model += [nn.Linear(self.hidden_dims, self.hidden_dims)]
+            model += [nn.ELU()]
+        model += [nn.Linear(self.hidden_dims, 2*self.latent_dims)]
+        return nn.Sequential(*model)
+
+    def forward(self, z, action):
+        x = torch.cat([z, action], axis=-1)
+        x = self.model(x)
+        mean, std = torch.chunk(x, 2, -1)
+        mean = 30 * torch.tanh(mean / 30)
+        mean += z
+        std = self.std_max - F.softplus(self.std_max-std)
+        std = self.std_min  + F.softplus(std-self.std_min)
+        return td.independent.Independent(td.Normal(mean, std), 1)
+
+
 class RewardPrior(nn.Module):
     def __init__(self, latent_dims, hidden_dims, action_dims):
         super().__init__()

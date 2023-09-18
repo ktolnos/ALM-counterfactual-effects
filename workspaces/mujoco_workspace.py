@@ -35,7 +35,7 @@ class MujocoWorkspace:
         for _ in range(1, self.cfg.explore_steps):
             action = self.train_env.action_space.sample()
             next_state, reward, done, trunc, info = self.train_env.step(action)
-            self.agent.env_buffer.push((state, action, reward, next_state, done and not trunc))
+            self.agent.env_buffer.push((state, action, reward, next_state, done, trunc))
 
             if done:
                 state, info = self.train_env.reset(seed=self.cfg.seed)
@@ -58,7 +58,7 @@ class MujocoWorkspace:
             done = done or trunc
             self._train_step += 1
 
-            self.agent.env_buffer.push((state, action, reward, next_state, False if info.get("TimeLimit.truncated", False) else done))
+            self.agent.env_buffer.push((state, action, reward, next_state, done, trunc))
 
             self.agent.update(self._train_step)
 
