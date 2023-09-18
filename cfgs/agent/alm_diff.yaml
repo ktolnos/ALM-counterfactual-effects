@@ -44,7 +44,7 @@ num_eval_episodes: 5
 
 #logging
 wandb_log: True
-wandb_run_name: 'ALM-pred-diff'
+wandb_run_name: 'ALM-cont_eff_single_model'
 log_interval: 500
 
 #saving

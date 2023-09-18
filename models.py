@@ -78,14 +78,24 @@ class ModelDiffPrior(nn.Module):
         model += [nn.Linear(self.hidden_dims, 2*self.latent_dims)]
         return nn.Sequential(*model)
 
-    def forward(self, z, action):
+
+
+    def _calculate_diff_mean_std(self, z, action):
         x = torch.cat([z, action], axis=-1)
         x = self.model(x)
         mean, std = torch.chunk(x, 2, -1)
         mean = 30 * torch.tanh(mean / 30)
+        std = self.std_max - F.softplus(self.std_max - std)
+        std = self.std_min + F.softplus(std - self.std_min)
+        return mean, std
+
+    def calculate_diff(self, z, action):
+        mean, std = self._calculate_diff_mean_std(z, action)
+        return td.independent.Independent(td.Normal(mean, std), 1)
+
+    def forward(self, z, action):
+        mean, std = self._calculate_diff_mean_std(z, action)
         mean += z
-        std = self.std_max - F.softplus(self.std_max-std)
-        std = self.std_min  + F.softplus(std-self.std_min)
         return td.independent.Independent(td.Normal(mean, std), 1)
 
 

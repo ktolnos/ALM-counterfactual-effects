@@ -5,7 +5,8 @@ import torch.nn.functional as F
 import numpy as np
 import wandb
 import utils
-from models import Encoder, ModelPrior, RewardPrior, Discriminator, Critic, Actor
+from models import Encoder, ModelPrior, RewardPrior, Discriminator, Critic, Actor, ModelDiffPrior
+
 
 class AlmDiffAgent(object):
     def __init__(self, device, action_low, action_high, num_states, num_actions,
@@ -63,7 +64,7 @@ class AlmDiffAgent(object):
         
         return z.cpu().numpy()
 
-    def get_lower_bound(self, state_batch, action_batch):
+    def get_lower_bound(self, state_batch, action_batch): # not used?
         with torch.no_grad():
             z_batch = self.encoder_target(state_batch).sample()
             z_seq, action_seq = self._rollout_evaluation(z_batch, action_batch, std=0.1)
@@ -81,7 +82,7 @@ class AlmDiffAgent(object):
             lower_bound = torch.sum(discount * returns, dim=0)
         return lower_bound.cpu().numpy()    
 
-    def _rollout_evaluation(self, z_batch, action_batch, std):
+    def _rollout_evaluation(self, z_batch, action_batch, std): # not used?
         z_seq = [z_batch]
         action_seq = [action_batch]
         with torch.no_grad():
@@ -159,8 +160,9 @@ class AlmDiffAgent(object):
 
         # update actor
         with torch.no_grad():
-            z_seq_dist = self.encoder_target(state_seq)
-        self.update_actor(z_seq_dist, std, log, metrics)
+            seq = torch.cat((state_seq, next_state_seq[-1].unsqueeze(dim=0)), dim=0)
+            z_seq_dist = self.encoder_target(seq)
+        self.update_actor(z_seq_dist, action_seq, std, log, metrics)
 
         if log:
             metrics['seq_len'] = self.seq_len
@@ -287,8 +289,8 @@ class AlmDiffAgent(object):
             metrics['critic_loss'] = critic_loss.item()
             metrics['critic_grad_norm'] = critic_grad_norm.mean()
 
-    def update_actor(self, z_seq_dist, std, log, metrics):
-        actor_loss = self._lambda_svg_loss(z_seq_dist, std, log, metrics)
+    def update_actor(self, z_seq_dist, action_seq, std, log, metrics):
+        actor_loss = self._lambda_svg_loss(z_seq_dist, action_seq, std, log, metrics)
 
         self.actor_opt.zero_grad()
         actor_loss.backward()
@@ -308,9 +310,9 @@ class AlmDiffAgent(object):
         actor_loss = -Q.mean()
         return actor_loss
 
-    def _lambda_svg_loss(self, z_seq_dist, std, log, metrics):
+    def _lambda_svg_loss(self, z_seq_dist, action_seq, std, log, metrics):
         actor_loss = 0
-        z_seq, action_seq = self._rollout_imagination(z_seq_dist, std)
+        z_seq, action_seq = self._rollout_imagination(z_seq_dist, action_seq, std)
 
         with utils.FreezeParameters([self.model, self.reward, self.classifier, self.critic]):
             reward = self.reward(z_seq[:-1], action_seq[:-1])
@@ -340,19 +342,32 @@ class AlmDiffAgent(object):
 
         return actor_loss
 
-    def _rollout_imagination(self, z_seq_dist, std):
-        z_batch = z_seq_dist.sample()[0]
+    def _rollout_imagination(self, z_seq_dist, action_observed_seq, std):
+        """
+        :param z_seq_dist: sequence of seq_len+1 consecutive latent states
+        :param action_observed_seq: sequence of seq_len consecutive actions from the same trajectory
+        :param std: std
+        :return: seq_len+1 consecutive latent states,  seq_len+1 actions
+        """
+        z_sampled_seq = z_seq_dist.sample()
+        z_batch = z_sampled_seq[0]
         z_seq = [z_batch]
         action_seq = []
+        actual_effect = torch.zeros_like(z_batch)
+        contr_effect = torch.zeros_like(z_batch)
+        contr_state = z_batch
         with utils.FreezeParameters([self.model]):
             for t in range(self.seq_len):
-                action_dist = self.actor(z_batch.detach(), std)
+                action_dist = self.actor(contr_state.detach(), std)
                 action_batch = action_dist.sample(self.stddev_clip)
-                z_batch = self.model(z_batch, action_batch).rsample()
+                contr_effect += self.model.calculate_diff(contr_state, action_batch).rsample()
+                actual_action = action_observed_seq[t]
+                actual_effect += self.model.calculate_diff(z_sampled_seq[t], actual_action).rsample()
+                contr_state = z_sampled_seq[t+1] - actual_effect + contr_effect
                 action_seq.append(action_batch)
-                z_seq.append(z_batch)
+                z_seq.append(contr_state)
 
-            action_dist = self.actor(z_batch.detach(), std)
+            action_dist = self.actor(contr_state.detach(), std)
             action_batch = action_dist.sample(self.stddev_clip)
             action_seq.append(action_batch)
 
@@ -365,7 +380,7 @@ class AlmDiffAgent(object):
         self.encoder_target = Encoder(num_states, hidden_dims, latent_dims).to(self.device)
         utils.hard_update(self.encoder_target, self.encoder)
 
-        self.model = ModelPrior(latent_dims, num_actions, model_hidden_dims).to(self.device)
+        self.model = ModelDiffPrior(latent_dims, num_actions, model_hidden_dims).to(self.device)
         self.reward = RewardPrior(latent_dims, hidden_dims, num_actions).to(self.device)
         self.classifier = Discriminator(latent_dims, hidden_dims, num_actions).to(self.device)
 

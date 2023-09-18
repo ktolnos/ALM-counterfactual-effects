@@ -128,7 +128,7 @@ class MujocoWorkspace:
             save_frames_as_gif(frames)
         print("Episode: {}, episode steps: {}, episode returns: {}".format(i, info["episode"]["l"], round(info["episode"]["r"], 2)))
         
-    def _eval_bias(self):
+    def _eval_bias(self): # not used?
         final_mc_list, final_obs_list, final_act_list = self._mc_returns()
         final_mc_norm_list = np.abs(final_mc_list.copy())
         final_mc_norm_list[final_mc_norm_list < 10] = 10
