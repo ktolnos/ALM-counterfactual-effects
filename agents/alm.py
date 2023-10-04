@@ -98,14 +98,14 @@ class AlmAgent(object):
         action_seq = torch.stack(action_seq, dim=0)
         return z_seq, action_seq
 
-    def update(self, step):
+    def update(self, step, force_no_log):
         metrics = dict()
         std = utils.linear_schedule(self.expl_start, self.expl_end, self.expl_duration, step)
 
         if step % self.log_interval == 0 and self.log_wandb:
-            log = True 
+            log = not force_no_log
         else:
-            log = False 
+            log = False
 
         self.update_representation(std, step, log, metrics)
         self.update_rest(std, step, log, metrics)

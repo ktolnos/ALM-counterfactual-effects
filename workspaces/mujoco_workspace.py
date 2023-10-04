@@ -50,6 +50,7 @@ class MujocoWorkspace:
         state, info = self.train_env.reset(seed=self.cfg.seed)
         done = False
         episode_start_time = time.time()
+        trains_per_action = 1
         
         for _ in range(1, self.cfg.num_train_steps-self.cfg.explore_steps+1):  
 
@@ -60,7 +61,8 @@ class MujocoWorkspace:
 
             self.agent.env_buffer.push((state, action, reward, next_state, done, trunc))
 
-            self.agent.update(self._train_step)
+            for i in range(trains_per_action):
+                self.agent.update(self._train_step, i!=0)
 
             if (self._train_step)%self.cfg.eval_episode_interval==0:
                 self._eval()

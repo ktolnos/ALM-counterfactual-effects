@@ -1,5 +1,5 @@
 #common
-agent: 'alm'
+agent: 'alm_diff'
 device: 'cuda'
 seed: 1
 
@@ -8,10 +8,10 @@ benchmark: 'gym'
 id: 'HalfCheetah-v2'
 
 #data 
-num_train_steps: 100000
+num_train_steps: 500000
 explore_steps: 5000
 max_episode_steps: 1000
-env_buffer_size: 20000
+env_buffer_size: 100000
 batch_size: 512
 seq_len: 3
 
@@ -44,11 +44,11 @@ num_eval_episodes: 5
 
 #logging
 wandb_log: True
-wandb_run_name: 'ALM-model+model'
+wandb_run_name: 'ec-z2-contr-entr-back'
 log_interval: 500
 
 #saving
-save_snapshot: True
+save_snapshot: False
 save_snapshot_interval: 50000
 
 hydra:
