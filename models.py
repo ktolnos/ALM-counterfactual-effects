@@ -151,6 +151,12 @@ class ModelContrafactualPrior(nn.Module):
         ic_mean, ic_std = self._get_mean_std(self.independent_change_model(z))
         return ec_mean+ic_mean, ec_std + ic_std
 
+    def ic(self, z):
+        return _independent_normal(*self._get_mean_std(self.independent_change_model(z)))
+
+    def ec(self, z, a):
+        return _independent_normal(*self._get_mean_std(self.effect_contrafactual_model(z, a)))
+
     def forward(self, actual_z, actual_action, next_actual_z, contr_z, contr_action):
         # mean, std = self._calculate_diff_mean_std(contr_z, contr_action)
         # mean += contr_z
@@ -204,6 +210,9 @@ class RewardStateActionPrior(nn.Module):
     def state_action_reward(self, z, a):
         z_a = torch.cat([z, a], -1)
         return self.reward_action(z_a)
+
+    def calculate_diff(self, z, a):
+        return self.state_reward(z) + self.state_action_reward(z, a)
 
     def forward(self, actual_reward, actual_z, actual_action, contr_z, contr_action):
         # TODO check if there would be a difference if I subtracted the whole trajectory effect and

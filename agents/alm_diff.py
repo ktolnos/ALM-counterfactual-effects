@@ -403,6 +403,12 @@ class AlmDiffAgent(object):
         action_seq = []
         reward_seq = []
         contr_z = z_batch
+        actual_effect = torch.zeros_like(z_batch)
+        contr_effect = torch.zeros_like(z_batch)
+        # normal_world = z_batch
+        reward_actual_effect = torch.zeros_like(reward_observed_seq[0][:, None])
+        reward_contr_effect = torch.zeros_like(reward_observed_seq[0][:, None])
+        cumulative_reward = reward_observed_seq[0][:, None]
         with utils.FreezeParameters([self.model, self.reward]):
             for t in range(self.seq_len):
                 actual_action = action_observed_seq[t]
@@ -412,16 +418,24 @@ class AlmDiffAgent(object):
                     actual_z = z_sampled_seq[t]
 
                 contr_action_dist = self.actor(contr_z.detach(), std)
-                contr_action_batch = contr_action_dist.sample(self.stddev_clip)
+                contr_action = contr_action_dist.sample(self.stddev_clip)
 
-                contr_reward = self.reward.forward(
-                    reward_observed_seq[t][:, None], actual_z, actual_action, contr_z, contr_action_batch)
+                reward_actual_effect += self.reward.calculate_diff(actual_z, actual_action)
+                reward_contr_effect += self.reward.calculate_diff(contr_z, contr_action)
 
-                contr_z = self.model.forward(
-                    actual_z, actual_action, z_sampled_seq[t+1], contr_z, contr_action_batch).rsample()
+                cumulative_reward += reward_observed_seq[t][:, None]
+                contr_reward = cumulative_reward - reward_actual_effect + reward_contr_effect
+
+                actual_effect += self.model.calculate_diff(actual_z, actual_action).rsample() # - self.model.ic(actual_z - actual_effect).sample()
+                contr_effect += self.model.calculate_diff(contr_z, contr_action).rsample() # - self.model.ic(contr_z - contr_effect).sample()
+                # contr_z - contr_effect = actual_z - actual_effect + contr_effect - contr_effect = actual_z - actual_effect
+
+                normal_world = z_sampled_seq[t+1] - actual_effect
+
+                contr_z = normal_world + contr_effect
 
                 reward_seq.append(contr_reward)
-                action_seq.append(contr_action_batch)
+                action_seq.append(contr_action)
                 z_seq.append(contr_z)
 
             action_dist = self.actor(contr_z.detach(), std)

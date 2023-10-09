@@ -118,7 +118,7 @@ class AlmAgent(object):
             wandb.log(metrics, step=step)  
 
     def update_representation(self, std, step, log, metrics):    
-        state_seq, action_seq, reward_seq, next_state_seq, done_seq = self.env_buffer.sample_seq(self.seq_len, self.batch_size)
+        state_seq, action_seq, reward_seq, next_state_seq, done_seq, trunc_seq = self.env_buffer.sample_seq(self.seq_len, self.batch_size)
         state_seq = torch.FloatTensor(state_seq).to(self.device)
         next_state_seq = torch.FloatTensor(next_state_seq).to(self.device)
         action_seq = torch.FloatTensor(action_seq).to(self.device)
@@ -192,7 +192,7 @@ class AlmAgent(object):
         return Q
 
     def update_rest(self, std, step, log, metrics):
-        state_batch, action_batch, reward_batch, next_state_batch, done_batch = self.env_buffer.sample(self.batch_size)
+        state_batch, action_batch, reward_batch, next_state_batch, done_batch, trunc_batch = self.env_buffer.sample(self.batch_size)
         state_batch = torch.FloatTensor(state_batch).to(self.device)
         next_state_batch = torch.FloatTensor(next_state_batch).to(self.device)
         action_batch = torch.FloatTensor(action_batch).to(self.device)
