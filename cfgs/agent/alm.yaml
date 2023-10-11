@@ -20,7 +20,7 @@ gamma: 0.99
 tau: 0.005
 target_update_interval: 1
 lambda_cost: 0.1
-lr: {'model' : 0.0001, 'reward' : 0.0001, 'critic' : 0.0001, 'actor' : 0.0001}
+lr: {'model' : 0.0001, 'reward' : 0.0001, 'critic' : 0.0001, 'actor' : 0.00001}
 max_grad_norm: 100.0
 
 #exploration

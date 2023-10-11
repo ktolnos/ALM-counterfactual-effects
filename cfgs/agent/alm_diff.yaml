@@ -8,10 +8,10 @@ benchmark: 'gym'
 id: 'HalfCheetah-v2'
 
 #data 
-num_train_steps: 100000
+num_train_steps: 500000
 explore_steps: 5000
 max_episode_steps: 1000
-env_buffer_size: 20000
+env_buffer_size: 100000
 batch_size: 512
 seq_len: 3
 
@@ -20,7 +20,7 @@ gamma: 0.99
 tau: 0.005
 target_update_interval: 1
 lambda_cost: 0.1
-lr: {'model' : 0.0001, 'reward' : 0.0001, 'critic' : 0.0001, 'actor' : 0.0001}
+lr: {'model' : 0.0001, 'reward' : 0.0001, 'critic' : 0.0001, 'actor' : 0.00001}
 max_grad_norm: 100.0
 
 #exploration
