@@ -11,10 +11,10 @@ class Encoder(nn.Module):
         self.latent_dims = latent_dims
         self.encoder = nn.Sequential(
             nn.Linear(input_shape, hidden_dims),
-            nn.ELU(), nn.Linear(hidden_dims, hidden_dims),
-            nn.ELU(), nn.Linear(hidden_dims, 2*latent_dims))
+            nn.LeakyReLU(), nn.LayerNorm(hidden_dims), nn.Linear(hidden_dims, hidden_dims),
+            nn.LeakyReLU(), nn.LayerNorm(hidden_dims), nn.Linear(hidden_dims, 2*latent_dims))
 
-        self.std_min = 0.1
+        self.std_min = 0.05
         self.std_max = 10.0
         self.apply(utils.weight_init)
 
@@ -24,6 +24,7 @@ class Encoder(nn.Module):
         mean = 30 * torch.tanh(mean / 30)
         std = self.std_max - F.softplus(self.std_max-std)
         std = self.std_min  + F.softplus(std-self.std_min) 
+        #std = torch.min(std.exp(), self.std_max)
         return td.independent.Independent(td.Normal(mean, std), 1)
         
 class ModelPrior(nn.Module):
@@ -33,17 +34,18 @@ class ModelPrior(nn.Module):
         self.action_dims = action_dims
         self.hidden_dims = hidden_dims
         self.num_layers = num_layers
-        self.std_min = 0.1
+        self.std_min = 0.05
         self.std_max = 10.0
         self.model = self._build_model()
         self.apply(utils.weight_init)
 
     def _build_model(self):
         model = [nn.Linear(self.action_dims + self.latent_dims, self.hidden_dims)]
-        model += [nn.ELU()]
+        model += [nn.LeakyReLU()]
         for i in range(self.num_layers-1):
             model += [nn.Linear(self.hidden_dims, self.hidden_dims)]
-            model += [nn.ELU()]
+            model += [nn.LeakyReLU()]
+            model += [nn.LayerNorm(self.hidden_dims)]
         model += [nn.Linear(self.hidden_dims, 2*self.latent_dims)]
         return nn.Sequential(*model)
 
@@ -54,6 +56,8 @@ class ModelPrior(nn.Module):
         mean = 30 * torch.tanh(mean / 30)
         std = self.std_max - F.softplus(self.std_max-std)
         std = self.std_min  + F.softplus(std-self.std_min) 
+        #std = torch.min(std.exp(), self.std_max)
+
         return td.independent.Independent(td.Normal(mean, std), 1)
 
 
@@ -64,14 +68,14 @@ class ModelDiffPrior(nn.Module):
         self.action_dims = action_dims
         self.hidden_dims = hidden_dims
         self.num_layers = num_layers
-        self.std_min = 0.1
+        self.std_min = 0.05
         self.std_max = 10.0
         self.model = self._build_model()
         self.apply(utils.weight_init)
 
     def _build_model(self):
         model = [nn.Linear(self.action_dims + self.latent_dims, self.hidden_dims)]
-        model += [nn.ELU()]
+        model += [nn.LeakyReLU()]
         for i in range(self.num_layers-1):
             model += [nn.Linear(self.hidden_dims, self.hidden_dims)]
             model += [nn.ELU()]
@@ -87,6 +91,8 @@ class ModelDiffPrior(nn.Module):
         mean = 30 * torch.tanh(mean / 30)
         std = self.std_max - F.softplus(self.std_max - std)
         std = self.std_min + F.softplus(std - self.std_min)
+        #std = torch.min(std.exp(), self.std_max)
+
         return mean, std
 
     def calculate_diff(self, z, action):
@@ -108,9 +114,9 @@ class ModelContrafactualPrior(nn.Module):
         super().__init__()
         self.latent_dims = latent_dims
         self.action_dims = action_dims
-        self.hidden_dims = hidden_dims
+        self.hidden_dims = hidden_dims 
         self.num_layers = num_layers
-        self.std_min = 0.1 # TODO tune? seems important hyperparam
+        self.std_min = 0.05  # TODO tune? seems important hyperparam
         self.std_max = 10
         self.independent_change_model = self._build_ic_model()
         self.effect_contrafactual_model = self._build_ec_model()
@@ -118,20 +124,20 @@ class ModelContrafactualPrior(nn.Module):
 
     def _build_ic_model(self):
         model = [nn.Linear(self.latent_dims, self.hidden_dims)]
-        model += [nn.ELU()]
+        model += [nn.LeakyReLU()]
         for i in range(self.num_layers-1):
             model += [nn.Linear(self.hidden_dims, self.hidden_dims)]
-            model += [nn.ELU()]
+            model += [nn.LeakyReLU()]
         model += [nn.Linear(self.hidden_dims, 2*self.latent_dims)]
         return nn.Sequential(*model)
 
     def _build_ec_model(self):
-        hidden_dims = self.hidden_dims // 2  # TODO tune
+        hidden_dims = self.hidden_dims  # TODO tune
         model = [nn.Linear(self.action_dims + self.latent_dims, hidden_dims)]
-        model += [nn.ELU()]
+        model += [nn.LeakyReLU()]
         for i in range(self.num_layers-1):
             model += [nn.Linear(hidden_dims, hidden_dims)]
-            model += [nn.ELU()]
+            model += [nn.LeakyReLU()]
         model += [nn.Linear(hidden_dims, 2*self.latent_dims)]
         return nn.Sequential(*model)
 
@@ -140,8 +146,8 @@ class ModelContrafactualPrior(nn.Module):
         mean = 30 * torch.tanh(mean / 30)
         std = self.std_max - F.softplus(self.std_max - std)
         std = self.std_min + F.softplus(std - self.std_min)
+        #std = torch.min(std.exp(), self.std_max)
         return mean, std
-
     def calculate_diff(self, z, action):
         return _independent_normal(*self._calculate_diff_mean_std(z, action))
 
@@ -152,23 +158,22 @@ class ModelContrafactualPrior(nn.Module):
         return ec_mean+ic_mean, ec_std + ic_std
 
     def ic(self, z):
-        return _independent_normal(*self._get_mean_std(self.independent_change_model(z)))
+        return self._get_mean_std(self.independent_change_model(z))
 
     def ec(self, z, a):
-        return _independent_normal(*self._get_mean_std(self.effect_contrafactual_model(z, a)))
+        za = torch.cat((z,a), dim=-1)
+        return self._get_mean_std(self.effect_contrafactual_model(za))
 
     def forward(self, actual_z, actual_action, next_actual_z, contr_z, contr_action):
         # mean, std = self._calculate_diff_mean_std(contr_z, contr_action)
         # mean += contr_z
         # return _independent_normal(mean, std)
-        if actual_z is contr_z:
-            z_a_act = torch.cat((actual_z, actual_action), dim=-1)
-            actual_effect, std_a = self._get_mean_std(self.effect_contrafactual_model(z_a_act))
-            z_a_contr = torch.cat((contr_z, contr_action), dim=-1)
-            contr_effect, std_c = self._get_mean_std(self.effect_contrafactual_model(z_a_contr))
-        else:
-            actual_effect, std_a = self._calculate_diff_mean_std(actual_z, actual_action)
-            contr_effect, std_c = self._calculate_diff_mean_std(contr_z, contr_action)
+        #if actual_z is contr_z:
+        actual_effect, std_a = self.ec(actual_z, actual_action)
+        contr_effect, std_c = self.ec(contr_z, contr_action)
+      #  else:
+       #     actual_effect, std_a = self._calculate_diff_mean_std(actual_z)
+        #    contr_effect, std_c = self._calculate_diff_mean_std(contr_z)
 
         mean = next_actual_z - actual_z + contr_z - actual_effect + contr_effect
         return _independent_normal(mean, std_a + std_c)
@@ -196,7 +201,7 @@ class RewardStateActionPrior(nn.Module):
             nn.Linear(latent_dims, hidden_dims), nn.LayerNorm(hidden_dims),
             nn.Tanh(), nn.Linear(hidden_dims, hidden_dims),
             nn.ELU(), nn.Linear(hidden_dims, 1))
-        hidden_dims //= 2  # TODO tune
+        hidden_dims //= 1 # TODO tune
         self.reward_action = nn.Sequential(
             nn.Linear(latent_dims + action_dims, hidden_dims), nn.LayerNorm(hidden_dims),
             nn.Tanh(), nn.Linear(hidden_dims, hidden_dims),
@@ -273,10 +278,12 @@ class Actor(nn.Module):
         self.fc2 = nn.Linear(hidden_dims, hidden_dims)
         self.mean = nn.Linear(hidden_dims, output_shape)
         self.apply(utils.weight_init)
-
+        self.bn1 = nn.LayerNorm(hidden_dims)
+        self.bn2 = nn.LayerNorm(hidden_dims)
+        self.relu = nn.LeakyReLU()
     def forward(self, x, std):
-        x = F.elu(self.fc1(x))
-        x = F.elu(self.fc2(x))
+        x = self.relu(self.fc1(x))
+        x = self.relu(self.fc2(x))
         mean = torch.tanh(self.mean(x))
         std = torch.ones_like(mean) * std
         dist = utils.TruncatedNormal(mean, std, self.low, self.high)
@@ -293,11 +300,13 @@ class StochasticActor(nn.Module):
         self.std_min = np.exp(-5)
         self.std_max = np.exp(2)
         self.apply(utils.weight_init)
+        self.relu = nn.LeakyReLU()
 
     def forward(self, x):
-        x = F.elu(self.fc1(x))
-        x = F.elu(self.fc2(x))
-        x = self.fc3(x)
+        x = self.relu(self.fc1(x))
+        x = self.relu(self.fc2(x))
+        mean = torch.tanh(self.mean(x))
+        std = torch.ones_like(mean) * std
         mean, std = torch.chunk(x, 2, -1)
         mean = torch.tanh(mean)
         std = self.std_max - F.softplus(self.std_max-std)
