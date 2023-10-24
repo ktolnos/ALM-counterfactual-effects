@@ -1,18 +1,19 @@
 #common
 agent: 'alm'
 device: 'cuda'
-seed: 639
+seed: 640
 
 #benchmark
 benchmark: 'gym'
 id: 'HalfCheetah-v2'
 
 #algorithmic config
-rollout: rollout_correction # alm, rollout_correction, 1_step_correction
+rollout: true_model # alm, rollout_correction, 1_step_correction, true_model
 model_mode: diff # full (alm), diff
 model_min_std: 0.1 # default 0.1
 model_max_std: 10 # default 10
 actor_sequence_retrieval: mean # sample, mean
+rollout_accuracy_batch_size: 10 # 0 to not log
 
 #data 
 num_train_steps: 500000
@@ -51,7 +52,7 @@ num_eval_episodes: 5
 
 #logging
 wandb_log: True
-wandb_run_name: 'rollout_correction-model_min_std=0.15'
+wandb_run_name: 'true_model_no_sample'
 log_interval: 500
 
 #saving

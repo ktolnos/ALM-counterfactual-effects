@@ -1,7 +1,9 @@
-import torch 
-import torch.nn as nn
-import torch.distributions as td
 from typing import Iterable
+
+import torch
+import torch.distributions as td
+import torch.nn as nn
+
 
 # NN weight utils
 
@@ -59,7 +61,7 @@ class TruncatedNormal(td.Normal):
         x = x - x.detach() + clamped_x.detach()
         return x
 
-    def sample(self, clip=None, sample_shape=torch.Size()):
+    def rsample(self, clip=None, sample_shape=torch.Size()):
         shape = self._extended_shape(sample_shape)
         eps = td.utils._standard_normal(shape,
                                dtype=self.loc.dtype,

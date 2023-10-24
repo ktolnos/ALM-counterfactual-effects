@@ -1,12 +1,14 @@
 import random
-import torch
 import time
-import wandb
-import numpy as np
+from pathlib import Path
 
-from pathlib import Path 
+import numpy as np
+import torch
+import wandb
+
 from utils.env import save_frames_as_gif
 from workspaces.common import make_agent, make_env
+
 
 class MujocoWorkspace:
     def __init__(self, cfg):
@@ -17,8 +19,8 @@ class MujocoWorkspace:
             self.checkpoint_path.mkdir(exist_ok=True)
         self.device = torch.device(cfg.device)
         self.set_seed()
-        self.train_env, self.eval_env = make_env(self.cfg)
-        self.agent = make_agent(self.train_env, self.device, self.cfg)
+        self.train_env, self.eval_env, self.rollout_env = make_env(self.cfg)
+        self.agent = make_agent(self.train_env, self.rollout_env, self.device, self.cfg)
         self._train_step = 0
         self._train_episode = 0
         self._best_eval_returns = -np.inf
@@ -34,8 +36,11 @@ class MujocoWorkspace:
         
         for _ in range(1, self.cfg.explore_steps):
             action = self.train_env.action_space.sample()
+            mujoco_state = self.train_env.sim.get_state()
+
             next_state, reward, done, trunc, info = self.train_env.step(action)
-            self.agent.env_buffer.push((state, action, reward, next_state, done, trunc))
+
+            self.agent.env_buffer.push((state, action, reward, next_state, done, trunc), mujoco_state)
 
             if done:
                 state, info = self.train_env.reset(seed=self.cfg.seed)
@@ -55,11 +60,12 @@ class MujocoWorkspace:
         for _ in range(1, self.cfg.num_train_steps-self.cfg.explore_steps+1):  
 
             action = self.agent.get_action(state, self._train_step)
+            mujoco_state = self.train_env.sim.get_state()
             next_state, reward, done, trunc, info = self.train_env.step(action)
             done = done or trunc
             self._train_step += 1
 
-            self.agent.env_buffer.push((state, action, reward, next_state, done, trunc))
+            self.agent.env_buffer.push((state, action, reward, next_state, done, trunc), mujoco_state)
 
             for i in range(trains_per_action):
                 self.agent.update(self._train_step, i!=0)
@@ -93,7 +99,7 @@ class MujocoWorkspace:
         steps = 0
         for _ in range(self.cfg.num_eval_episodes):
             done = False 
-            state, info = self.eval_env.reset(seed=self.cfg.seed)
+            state, info = self.eval_env.reset(seed=self.cfg.seed + 100)
             while not done:
                 action = self.agent.get_action(state, self._train_step, True)
                 next_state, _, done, trunc, info = self.eval_env.step(action)
