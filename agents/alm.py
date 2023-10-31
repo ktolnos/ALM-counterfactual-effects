@@ -485,8 +485,8 @@ class AlmAgent(object):
                 self.model_target = ModelDiffPrior(latent_dims, num_actions, model_hidden_dims,
                                         self.model_min_std, self.model_max_std).to(self.device)
                 
-                self.critic = ModelCritic(latent_dims, hidden_dims, num_actions,self.gamma, self.model, self.reward).to(self.device)
-                self.critic_target = ModelCritic(latent_dims, hidden_dims, num_actions,self.gamma, self.model_target, self.reward).to(self.device)
+            self.critic = ModelCritic(latent_dims, hidden_dims, num_actions,self.gamma, self.model, self.reward).to(self.device)
+            self.critic_target = ModelCritic(latent_dims, hidden_dims, num_actions,self.gamma, self.model_target, self.reward).to(self.device)
 
         elif self.critic_mode == "std":
             self.critic = Critic(latent_dims, hidden_dims, num_actions).to(self.device)
