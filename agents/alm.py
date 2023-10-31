@@ -79,10 +79,7 @@ class AlmAgent(object):
             reward = self.reward(z_seq[:-1], action_seq[:-1])
             kl_reward = self.classifier.get_reward(z_seq[:-1], action_seq[:-1], z_seq[1:])
             discount = self.gamma * torch.ones_like(reward)
-            if self.critic_mode == "model":
-                q_values_1, q_values_2, reward  = self.critic(z_seq[-1], action_seq[-1])
-            else: 
-                q_values_1, q_values_2  = self.critic(z_seq[-1], action_seq[-1])
+            q_values_1, q_values_2  = self.critic(z_seq[-1], action_seq[-1])
             q_values = torch.min(q_values_1, q_values_2)
             returns = torch.cat([reward + self.lambda_cost * kl_reward, q_values.unsqueeze(0)])
             discount = torch.cat([torch.ones_like(discount[:1]), discount])
@@ -194,13 +191,9 @@ class AlmAgent(object):
             action_batch = action_dist.sample(clip=self.stddev_clip)
 
         with utils.FreezeParameters(self.critic_list):
-            if self.critic_mode == "model":
-                Q1, Q2, R = self.critic(z_batch, action_batch)
-                Q = torch.min(Q1, Q2) * self.gamma + R
+            Q1, Q2 = self.critic(z_batch, action_batch)
+            Q = torch.min(Q1, Q2)
 
-            else: 
-                Q1, Q2 = self.critic(z_batch, action_batch)
-                Q = torch.min(Q1, Q2) 
         if log:
             metrics['alm_q_batch'] = Q.mean().item()
         return Q
@@ -299,12 +292,9 @@ class AlmAgent(object):
         with torch.no_grad():
             next_action_dist = self.actor(z_next_batch, std)
             next_action_batch = next_action_dist.sample(clip=self.stddev_clip)
-
+        Q1, Q2 = self.critic(z_batch, action_batch)
         if self.critic_mode == 'model':
-            Q1, Q2, R = self.critic(z_batch, action_batch)
-            Q1_, Q2_, R_ = self.critic(z_next_batch, next_action_batch)
-            Q1 = Q1 * self.gamma + R
-            Q2 = Q2 * self.gamma + R
+            Q1_, Q2_ = self.critic(z_next_batch, next_action_batch)
             Q_ = torch.min(Q1_,Q2_)
         else:
             target_Q1, target_Q2 = self.critic_target(z_next_batch, next_action_batch)
@@ -342,8 +332,8 @@ class AlmAgent(object):
             kl_reward = self.classifier.get_reward(z_seq[:-1], action_seq[:-1], z_seq[1:].detach())
             discount = self.gamma * torch.ones_like(reward)
             if self.critic_mode == "model":
-                q_values_1, q_values_2, R = self.critic(z_seq, action_seq.detach())
-                q_values = torch.min(q_values_1, q_values_2)*self.gamma + R
+                q_values_1, q_values_2 = self.critic(z_seq, action_seq.detach())
+                q_values = torch.min(q_values_1, q_values_2)
             else:
 
                 q_values_1, q_values_2 = self.critic(z_seq, action_seq.detach())
@@ -460,8 +450,8 @@ class AlmAgent(object):
                 self.model_target = ModelDiffPrior(latent_dims, num_actions, model_hidden_dims,
                                         self.model_min_std, self.model_max_std).to(self.device)
                 
-            self.critic = ModelCritic(latent_dims, hidden_dims, num_actions, self.model, self.reward).to(self.device)
-            self.critic_target = ModelCritic(latent_dims, hidden_dims, num_actions, self.model_target, self.reward).to(self.device)
+            self.critic = ModelCritic(latent_dims, hidden_dims, num_actions,self.gamma, self.model, self.reward).to(self.device)
+            self.critic_target = ModelCritic(latent_dims, hidden_dims, num_actions,self.gamma, self.model_target, self.reward).to(self.device)
 
         else:
             self.critic = Critic(latent_dims, hidden_dims, num_actions).to(self.device)
