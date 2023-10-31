@@ -297,6 +297,7 @@ class AlmAgent(object):
             next_action_batch = next_action_dist.sample(clip=self.stddev_clip)
             Q1_, Q2_ = self.critic_target(z_next_batch, next_action_batch)
         Q_ = torch.min(Q1_,Q2_)
+        Q_ = reward_batch.unsqueeze(-1) + discount_batch.unsqueeze(-1)*(Q_)
         Q1, Q2 = self.critic(z_batch, action_batch)
         critic_loss = (F.mse_loss(Q1, Q_) + F.mse_loss(Q2, Q_))/2
 
