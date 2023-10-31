@@ -232,6 +232,21 @@ class Critic(nn.Module):
         q2 = self.Q2(x_a)
         return q1, q2
 
+
+class ModelCritic(Critic):
+    def __init__(self, latent_dims, hidden_dims, action_shape, gamma, model, reward):
+        super().__init__(latent_dims, hidden_dims, action_shape=0)
+        self.model = model
+        self.reward = reward
+        self.gamma = gamma
+    def forward(self, x, a):
+        with utils.FreezeParameters([self.reward, self.model]):
+            next_state = self.model(x, a)
+            R = self.reward(x, a)
+        q1 = self.Q1(next_state.rsample())
+        q2 = self.Q2(next_state.rsample())
+        return q1*self.gamma + R, q2*self.gamma + R
+
 class Actor(nn.Module):
     def __init__(self, input_shape, hidden_dims, output_shape, low, high):
         super(Actor, self).__init__()
