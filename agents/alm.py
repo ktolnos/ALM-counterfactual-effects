@@ -344,15 +344,8 @@ class AlmAgent(object):
             reward = self.reward(z_seq[:-1], action_seq[:-1])
             kl_reward = self.classifier.get_reward(z_seq[:-1], action_seq[:-1], z_seq[1:].detach())
             discount = self.gamma * torch.ones_like(reward)
-            if self.critic_mode == "model":
-                q_values_1, q_values_2 = self.critic(z_seq, action_seq.detach())
-                q_values = torch.min(q_values_1, q_values_2)
-            elif self.critic_mode == "std":
-
-                q_values_1, q_values_2 = self.critic(z_seq, action_seq.detach())
-                q_values = torch.min(q_values_1, q_values_2)
-            else:
-                raise ValueError("Invalid critic mode " + self.critic_mode)
+            q_values_1, q_values_2 = self.critic(z_seq, action_seq.detach())
+            q_values = torch.min(q_values_1, q_values_2)
             returns = lambda_returns(reward+self.lambda_cost*kl_reward, discount, q_values[:-1], q_values[-1], self.seq_len)
             discount = torch.cat([torch.ones_like(discount[:1]), discount])
             discount = torch.cumprod(discount[:-1], 0)
