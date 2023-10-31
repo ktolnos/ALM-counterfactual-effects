@@ -295,16 +295,17 @@ class AlmAgent(object):
         with torch.no_grad():
             next_action_dist = self.actor(z_next_batch, std)
             next_action_batch = next_action_dist.sample(clip=self.stddev_clip)
+            if self.critic_mode == 'model':
+                Q1_, Q2_ = self.critic_target(z_next_batch, next_action_batch)
+                Q_ = torch.min(Q1_,Q2_)
+            elif self.critic_mode == 'std':
+                target_Q1, target_Q2 = self.critic_target(z_next_batch, next_action_batch)
+                target_V = torch.min(target_Q1, target_Q2)
+                Q_ = reward_batch.unsqueeze(-1) + discount_batch.unsqueeze(-1)*(target_V)
+            else:
+                raise ValueError("Invalid critic mode " + self.critic_mode)
+
         Q1, Q2 = self.critic(z_batch, action_batch)
-        if self.critic_mode == 'model':
-            Q1_, Q2_ = self.critic(z_next_batch, next_action_batch)
-            Q_ = torch.min(Q1_,Q2_)
-        elif self.critic_mode == 'std':
-            target_Q1, target_Q2 = self.critic_target(z_next_batch, next_action_batch)
-            target_V = torch.min(target_Q1, target_Q2)
-            Q_ = reward_batch.unsqueeze(-1) + discount_batch.unsqueeze(-1)*(target_V)
-        else:
-            raise ValueError("Invalid critic mode " + self.critic_mode)
         critic_loss = (F.mse_loss(Q1, Q_) + F.mse_loss(Q2, Q_))/2
 
         self.critic_opt.zero_grad()
@@ -478,15 +479,9 @@ class AlmAgent(object):
             raise ValueError(f'Unexpected model mode {self.model_mode}')
 
         if self.critic_mode == 'model':
-            if self.model_mode == 'full':
-                self.model_target = ModelPrior(latent_dims, num_actions, model_hidden_dims,
-                                    self.model_min_std, self.model_max_std).to(self.device)
-            elif self.model_mode == 'diff':
-                self.model_target = ModelDiffPrior(latent_dims, num_actions, model_hidden_dims,
-                                        self.model_min_std, self.model_max_std).to(self.device)
                 
             self.critic = ModelCritic(latent_dims, hidden_dims, num_actions,self.gamma, self.model, self.reward).to(self.device)
-            self.critic_target = ModelCritic(latent_dims, hidden_dims, num_actions,self.gamma, self.model_target, self.reward).to(self.device)
+            self.critic_target = ModelCritic(latent_dims, hidden_dims, num_actions,self.gamma, self.model, self.reward).to(self.device)
 
         elif self.critic_mode == "std":
             self.critic = Critic(latent_dims, hidden_dims, num_actions).to(self.device)
