@@ -77,23 +77,6 @@ class AlmAgent(object):
 
         return z.cpu().numpy()
 
-    def get_lower_bound(self, state_batch, action_batch):
-        with torch.no_grad():
-            z_batch = self.encoder_target(state_batch).sample()
-            z_seq, action_seq = self._rollout_evaluation(z_batch, action_batch, std=0.1)
-
-            reward = self.reward(z_seq[:-1], action_seq[:-1])
-            kl_reward = self.classifier.get_reward(z_seq[:-1], action_seq[:-1], z_seq[1:])
-            discount = self.gamma * torch.ones_like(reward)
-            q_values_1, q_values_2 = self.critic(z_seq[-1], action_seq[-1])
-            q_values = torch.min(q_values_1, q_values_2)
-
-            returns = torch.cat([reward + self.lambda_cost * kl_reward, q_values.unsqueeze(0)])
-            discount = torch.cat([torch.ones_like(discount[:1]), discount])
-            discount = torch.cumprod(discount, 0)
-
-            lower_bound = torch.sum(discount * returns, dim=0)
-        return lower_bound.cpu().numpy()
 
     def _rollout_evaluation(self, z_batch, action_batch, std):
         z_seq = [z_batch]
@@ -311,14 +294,18 @@ class AlmAgent(object):
     def update_critic(self, z_batch, action_batch, reward_batch, z_next_batch, discount_batch, std, log, metrics):
         with torch.no_grad():
             next_action_dist = self.actor(z_next_batch, std)
-            next_action_batch = next_action_dist.rsample(clip=self.stddev_clip)
-
+            next_action_batch = next_action_dist.sample(clip=self.stddev_clip)
+        Q1, Q2 = self.critic(z_batch, action_batch)
+        if self.critic_mode == 'model':
+            Q1_, Q2_ = self.critic(z_next_batch, next_action_batch)
+            Q_ = torch.min(Q1_,Q2_)
+        elif self.critic_mode == 'std':
             target_Q1, target_Q2 = self.critic_target(z_next_batch, next_action_batch)
             target_V = torch.min(target_Q1, target_Q2)
-            target_Q = reward_batch.unsqueeze(-1) + discount_batch.unsqueeze(-1)*(target_V)
-
-        Q1, Q2 = self.critic(z_batch, action_batch)
-        critic_loss = (F.mse_loss(Q1, target_Q) + F.mse_loss(Q2, target_Q))/2
+            Q_ = reward_batch.unsqueeze(-1) + discount_batch.unsqueeze(-1)*(target_V)
+        else:
+            raise ValueError("Invalid critic mode " + self.critic_mode)
+        critic_loss = (F.mse_loss(Q1, Q_) + F.mse_loss(Q2, Q_))/2
 
         self.critic_opt.zero_grad()
         critic_loss.backward()
@@ -357,9 +344,15 @@ class AlmAgent(object):
             reward = self.reward(z_seq[:-1], action_seq[:-1])
             kl_reward = self.classifier.get_reward(z_seq[:-1], action_seq[:-1], z_seq[1:].detach())
             discount = self.gamma * torch.ones_like(reward)
-            q_values_1, q_values_2 = self.critic(z_seq, action_seq.detach())
-            q_values = torch.min(q_values_1, q_values_2)
+            if self.critic_mode == "model":
+                q_values_1, q_values_2 = self.critic(z_seq, action_seq.detach())
+                q_values = torch.min(q_values_1, q_values_2)
+            elif self.critic_mode == "std":
 
+                q_values_1, q_values_2 = self.critic(z_seq, action_seq.detach())
+                q_values = torch.min(q_values_1, q_values_2)
+            else:
+                raise ValueError("Invalid critic mode " + self.critic_mode)
             returns = lambda_returns(reward+self.lambda_cost*kl_reward, discount, q_values[:-1], q_values[-1], self.seq_len)
             discount = torch.cat([torch.ones_like(discount[:1]), discount])
             discount = torch.cumprod(discount[:-1], 0)
@@ -490,6 +483,24 @@ class AlmAgent(object):
                                         self.model_min_std, self.model_max_std).to(self.device)
         else:
             raise ValueError(f'Unexpected model mode {self.model_mode}')
+
+        if self.critic_mode == 'model':
+            if self.model_mode == 'full':
+                self.model_target = ModelPrior(latent_dims, num_actions, model_hidden_dims,
+                                    self.model_min_std, self.model_max_std).to(self.device)
+            elif self.model_mode == 'diff':
+                self.model_target = ModelDiffPrior(latent_dims, num_actions, model_hidden_dims,
+                                        self.model_min_std, self.model_max_std).to(self.device)
+                
+                self.critic = ModelCritic(latent_dims, hidden_dims, num_actions,self.gamma, self.model, self.reward).to(self.device)
+                self.critic_target = ModelCritic(latent_dims, hidden_dims, num_actions,self.gamma, self.model_target, self.reward).to(self.device)
+
+        elif self.critic_mode == "std":
+            self.critic = Critic(latent_dims, hidden_dims, num_actions).to(self.device)
+            self.critic_target = Critic(latent_dims, hidden_dims, num_actions).to(self.device)
+        else:
+            raise ValueError("Invalid critic mode "+self.critic_mode)
+
         self.reward = RewardPrior(latent_dims, hidden_dims, num_actions).to(self.device)
         self.classifier = Discriminator(latent_dims, hidden_dims, num_actions).to(self.device)
 
