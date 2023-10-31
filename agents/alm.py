@@ -296,10 +296,12 @@ class AlmAgent(object):
         if self.critic_mode == 'model':
             Q1_, Q2_ = self.critic(z_next_batch, next_action_batch)
             Q_ = torch.min(Q1_,Q2_)
-        else:
+        elif self.critic_mode=='std':
             target_Q1, target_Q2 = self.critic_target(z_next_batch, next_action_batch)
             target_V = torch.min(target_Q1, target_Q2)
             Q_ = reward_batch.unsqueeze(-1) + discount_batch.unsqueeze(-1)*(target_V)
+        else:
+            raise ValueError(f'Unsupported critic mode {self.critic_mode}')
 
         critic_loss = (F.mse_loss(Q1, Q_) + F.mse_loss(Q2, Q_))/2
 
@@ -453,9 +455,13 @@ class AlmAgent(object):
             self.critic = ModelCritic(latent_dims, hidden_dims, num_actions,self.gamma, self.model, self.reward).to(self.device)
             self.critic_target = ModelCritic(latent_dims, hidden_dims, num_actions,self.gamma, self.model_target, self.reward).to(self.device)
 
-        else:
+        elif self.critic_mode == 'std':
             self.critic = Critic(latent_dims, hidden_dims, num_actions).to(self.device)
             self.critic_target = Critic(latent_dims, hidden_dims, num_actions).to(self.device)
+        else:
+            raise ValueError(f'Unsupported critic mode {self.critic_mode}')
+
+        
         utils.hard_update(self.critic_target, self.critic)
 
         self.actor = Actor(latent_dims, hidden_dims, num_actions, self.action_low, self.action_high).to(self.device)
