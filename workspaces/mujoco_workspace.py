@@ -1,14 +1,12 @@
 import random
-import time
-from pathlib import Path
-
-import numpy as np
 import torch
+import time
 import wandb
+import numpy as np
 
+from pathlib import Path 
 from utils.env import save_frames_as_gif
 from workspaces.common import make_agent, make_env
-
 
 class MujocoWorkspace:
     def __init__(self, cfg):
@@ -19,8 +17,8 @@ class MujocoWorkspace:
             self.checkpoint_path.mkdir(exist_ok=True)
         self.device = torch.device(cfg.device)
         self.set_seed()
-        self.train_env, self.eval_env, self.rollout_env = make_env(self.cfg)
-        self.agent = make_agent(self.train_env, self.rollout_env, self.device, self.cfg)
+        self.train_env, self.eval_env = make_env(self.cfg)
+        self.agent = make_agent(self.train_env, self.device, self.cfg)
         self._train_step = 0
         self._train_episode = 0
         self._best_eval_returns = -np.inf
@@ -36,11 +34,8 @@ class MujocoWorkspace:
         
         for _ in range(1, self.cfg.explore_steps):
             action = self.train_env.action_space.sample()
-            mujoco_state = self.train_env.sim.get_state()
-
             next_state, reward, done, trunc, info = self.train_env.step(action)
-
-            self.agent.env_buffer.push((state, action, reward, next_state, done, trunc), mujoco_state)
+            self.agent.env_buffer.push((state, action, reward, next_state, done, trunc))
 
             if done:
                 state, info = self.train_env.reset(seed=self.cfg.seed)
@@ -60,12 +55,11 @@ class MujocoWorkspace:
         for _ in range(1, self.cfg.num_train_steps-self.cfg.explore_steps+1):  
 
             action = self.agent.get_action(state, self._train_step)
-            mujoco_state = self.train_env.sim.get_state()
             next_state, reward, done, trunc, info = self.train_env.step(action)
             done = done or trunc
             self._train_step += 1
 
-            self.agent.env_buffer.push((state, action, reward, next_state, done, trunc), mujoco_state)
+            self.agent.env_buffer.push((state, action, reward, next_state, done, trunc))
 
             for i in range(trains_per_action):
                 self.agent.update(self._train_step, i!=0)
@@ -78,7 +72,6 @@ class MujocoWorkspace:
 
             if done:
                 self._train_episode += 1
-                print("Episode: {}, total numsteps: {}, return: {}".format(self._train_episode, self._train_step, round(info["episode"]["r"], 2)))
                 if self.cfg.wandb_log:
                     episode_metrics = dict()
                     episode_metrics['episodic_length'] = info["episode"]["l"]
@@ -99,7 +92,7 @@ class MujocoWorkspace:
         steps = 0
         for _ in range(self.cfg.num_eval_episodes):
             done = False 
-            state, info = self.eval_env.reset(seed=self.cfg.seed + 100)
+            state, info = self.eval_env.reset(seed=self.cfg.seed)
             while not done:
                 action = self.agent.get_action(state, self._train_step, True)
                 next_state, _, done, trunc, info = self.eval_env.step(action)
@@ -109,7 +102,7 @@ class MujocoWorkspace:
             returns += info["episode"]["r"]
             steps += info["episode"]["l"]
             
-            print("Episode: {}, total numsteps: {}, return: {}".format(self._train_episode, self._train_step, round(info["episode"]["r"], 2)))
+            print("Episode: {}, total numsteps: {}, return: {}".format(self._train_episode, self._train_step, round(info["episode"]["r"][0], 2)))
 
         eval_metrics = dict()
         eval_metrics['eval_episodic_return'] = returns/self.cfg.num_eval_episodes
@@ -134,7 +127,7 @@ class MujocoWorkspace:
             state = next_state
         if record:
             save_frames_as_gif(frames)
-        print("Episode: {}, episode steps: {}, episode returns: {}".format(i, info["episode"]["l"], round(info["episode"]["r"], 2)))
+        print("Episode: {}, episode steps: {}, episode returns: {}".format(i, info["episode"]["l"], round(info["episode"]["r"][0], 2)))
         
     def _eval_bias(self): # not used?
         final_mc_list, final_obs_list, final_act_list = self._mc_returns()
