@@ -246,6 +246,9 @@ class ModelCritic(Critic):
         q1 = self.Q1(next_state.rsample())
         q2 = self.Q2(next_state.rsample())
         return q1*self.gamma + R, q2*self.gamma + R
+    def get_critic_value(self, z):
+        with utils.FreezeParameters([self.reward, self.model]):
+            return self.Q1(z), self.Q2(z)
 
 class Actor(nn.Module):
     def __init__(self, input_shape, hidden_dims, output_shape, low, high):
