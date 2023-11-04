@@ -308,11 +308,6 @@ class AlmAgent(object):
         critic_grad_norm = torch.nn.utils.clip_grad_norm_(utils.get_parameters(self.critic_list), max_norm=self.max_grad_norm, error_if_nonfinite=True)
         self.critic_opt.step()
 
-        self.critic_opt.zero_grad()
-        critic_loss.backward()
-        critic_grad_norm = torch.nn.utils.clip_grad_norm_(utils.get_parameters(self.critic_list), max_norm=self.max_grad_norm, error_if_nonfinite=True)
-        self.critic_opt.step()
-
         if log:
             metrics['mean_q_target'] = torch.mean(target_Q).item()
             metrics['variance_q_target'] = torch.var(target_Q).item()
