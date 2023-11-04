@@ -293,14 +293,20 @@ class AlmAgent(object):
 
     def update_critic(self, z_batch, action_batch, reward_batch, z_next_batch, discount_batch, std, log, metrics):
         with torch.no_grad():
-            z_next_batch = self.model(z_batch, action_batch).sample()
             next_action_dist = self.actor(z_next_batch, std)
             next_action_batch = next_action_dist.sample()
+
             Q1_, Q2_ = self.critic_target(z_next_batch, next_action_batch)
+
         Q_ = torch.min(Q1_,Q2_)
         Q_ = reward_batch.unsqueeze(-1) + discount_batch.unsqueeze(-1)*(Q_)
-        Q1, Q2 = self.critic(z_batch, action_batch)
+        Q1, Q2 = self.critic.get_critic_value(z_batch)
         critic_loss = (F.mse_loss(Q1, Q_) + F.mse_loss(Q2, Q_))/2
+
+        self.critic_opt.zero_grad()
+        critic_loss.backward()
+        critic_grad_norm = torch.nn.utils.clip_grad_norm_(utils.get_parameters(self.critic_list), max_norm=self.max_grad_norm, error_if_nonfinite=True)
+        self.critic_opt.step()
 
         self.critic_opt.zero_grad()
         critic_loss.backward()
