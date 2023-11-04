@@ -296,7 +296,7 @@ class AlmAgent(object):
             next_action_dist = self.actor(z_next_batch, std)
             next_action_batch = next_action_dist.sample()
 
-            Q1_, Q2_ = self.critic_target(z_next_batch, next_action_batch)
+            Q1_, Q2_ = self.critic_target.get_critic_value(z_next_batch, next_action_batch)
 
         Q_ = torch.min(Q1_,Q2_)
         Q_ = reward_batch.unsqueeze(-1) + discount_batch.unsqueeze(-1)*(Q_)
