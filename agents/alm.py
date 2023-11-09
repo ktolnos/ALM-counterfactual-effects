@@ -188,6 +188,11 @@ class AlmAgent(object):
         if log:
             metrics['alm_q_batch'] = Q.mean().item()
         return Q
+    def get_value(self, state):
+        with torch.no_grad():
+            state = torch.FloatTensor(state).to(self.device)
+            z = self.encoder(state)
+            return self.critic(z, self.actor(z).rsample(clip=self.stddev_clip))
 
     def update_rest(self, std, step, log, metrics):
         state_batch, action_batch, reward_batch, next_state_batch, done_batch, trunc_batch, mujoco_batch = self.env_buffer.sample(self.batch_size)
