@@ -56,17 +56,21 @@ class MujocoWorkspace:
         done = False
         episode_start_time = time.time()
         trains_per_action = 1
-        
+        rew = []
+        val_seq = []
+
         for _ in range(1, self.cfg.num_train_steps-self.cfg.explore_steps+1):  
 
             action = self.agent.get_action(state, self._train_step)
             mujoco_state = self.train_env.sim.get_state()
             next_state, reward, done, trunc, info = self.train_env.step(action)
+            
             done = done or trunc
             self._train_step += 1
 
             self.agent.env_buffer.push((state, action, reward, next_state, done, trunc), mujoco_state)
-
+            val_seq.append(self.agent.get_value(state, action))
+            rew.append(reward)
             for i in range(trains_per_action):
                 self.agent.update(self._train_step, i!=0)
 
@@ -77,16 +81,28 @@ class MujocoWorkspace:
                 self.save_snapshot()
 
             if done:
+                values = np.array(val_seq)
+                ret = np.array(rew)
+                for i in range(len(rew)):
+                    s = 0
+                    for j in range(len(rew) - i):
+                        s += rew[j]*self.agent.gamma**j
+                    ret[i] = s
                 self._train_episode += 1
-                print("Episode: {}, total numsteps: {}, return: {}".format(self._train_episode, self._train_step, round(info["episode"]["r"], 2)))
+                print("Episode: {}, total numsteps: {}, return: {}".format(self._train_episode, self._train_step, round(info["episode"]["r"][0], 2)))
                 if self.cfg.wandb_log:
                     episode_metrics = dict()
-                    episode_metrics['episodic_length'] = info["episode"]["l"]
-                    episode_metrics['episodic_return'] = info["episode"]["r"]
-                    episode_metrics['steps_per_second'] = info["episode"]["l"]/(time.time() - episode_start_time)
+                    episode_metrics['return_value_difference'] = (ret- values).mean()
+                    episode_metrics['episodic_length'] = info["episode"]["l"][0]
+                    episode_metrics['episodic_return'] = info["episode"]["r"][0]
+                    episode_metrics['steps_per_second'] = info["episode"]["l"][0]/(time.time() - episode_start_time)
                     episode_metrics['env_buffer_length'] = len(self.agent.env_buffer)
                     wandb.log(episode_metrics, step=self._train_step)
+                    discounted_ret = []
+                    val_seq = []
+
                 state, info = self.train_env.reset(seed=self.cfg.seed)
+                initial_state = state
                 done = False
                 episode_start_time = time.time()
             else:
