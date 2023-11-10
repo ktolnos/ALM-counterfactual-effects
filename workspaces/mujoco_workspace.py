@@ -83,11 +83,8 @@ class MujocoWorkspace:
             if done:
                 values = np.array(val_seq)
                 ret = np.array(rew)
-                for i in range(len(rew)):
-                    s = 0
-                    for j in range(len(rew) - i):
-                        s += rew[j]*self.agent.gamma**j
-                    ret[i] = s
+                for i in range(len(rew)-2, -1, -1):
+                    ret[i] +=rew[i] +ret[i+1] * self.agent.gamma
                 self._train_episode += 1
                 print("Episode: {}, total numsteps: {}, return: {}".format(self._train_episode, self._train_step, round(info["episode"]["r"][0], 2)))
                 if self.cfg.wandb_log:
