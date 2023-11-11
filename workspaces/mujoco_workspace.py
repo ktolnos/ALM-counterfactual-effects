@@ -58,6 +58,7 @@ class MujocoWorkspace:
         trains_per_action = 1
         rew = []
         val_seq = []
+        columns = ["Num Steps"]
 
         for _ in range(1, self.cfg.num_train_steps-self.cfg.explore_steps+1):  
 
