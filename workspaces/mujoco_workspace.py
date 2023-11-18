@@ -82,7 +82,7 @@ class MujocoWorkspace:
 
             if done:
                 ret = rew[:]
-                ret[-1] = np.mean(rew[-100:])**1/(1-self.agent.gamma)
+                ret[-1] = np.mean(rew[-100:])*1/(1-self.agent.gamma)
 
                 for i in reversed(range(len(rew) - 1)):
                     ret[i] = rew[i] + self.agent.gamma * ret[i+1]
