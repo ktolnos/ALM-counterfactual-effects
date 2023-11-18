@@ -69,7 +69,7 @@ class MujocoWorkspace:
             self._train_step += 1
 
             self.agent.env_buffer.push((state, action, reward, next_state, done, trunc), mujoco_state)
-            val_seq.append(self.agent.get_value(state, action)[0])
+            val_seq.append(min(self.agent.get_value(state, action)))
             rew.append(reward)
             for i in range(trains_per_action):
                 self.agent.update(self._train_step, i!=0)
