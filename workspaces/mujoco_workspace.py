@@ -82,10 +82,10 @@ class MujocoWorkspace:
 
             if done:
                 ret = rew[:]
-                ret[-1] = np.mean(rew[-100:])*99
+                ret[-1] = np.mean(rew[-100:])**1/(1-self.agent.gamma)
 
                 for i in reversed(range(len(rew) - 1)):
-                    ret[i] = rew[i] + 0.99 * ret[i+1]
+                    ret[i] = rew[i] + self.agent.gamma * ret[i+1]
                 xs = list(range(len(ret)))
                 values = np.array(val_seq)
                 print("Episode: {}, total numsteps: {}, return: {}".format(self._train_episode, self._train_step, round(info["episode"]["r"][0], 2)))
