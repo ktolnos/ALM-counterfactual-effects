@@ -51,14 +51,13 @@ class MujocoWorkspace:
     def train(self):
         self._explore()
         self._eval()
-
         state, info = self.train_env.reset(seed=self.cfg.seed)
         done = False
         episode_start_time = time.time()
         trains_per_action = 1
+        ret = []
+        val_seq= []
         rew = []
-        val_seq = []
-        columns = ["Num Steps"]
 
         for _ in range(1, self.cfg.num_train_steps-self.cfg.explore_steps+1):  
 
@@ -70,7 +69,7 @@ class MujocoWorkspace:
             self._train_step += 1
 
             self.agent.env_buffer.push((state, action, reward, next_state, done, trunc), mujoco_state)
-            val_seq.append(self.agent.get_value(state, action))
+            val_seq.append(self.agent.get_value(state, action)[0])
             rew.append(reward)
             for i in range(trains_per_action):
                 self.agent.update(self._train_step, i!=0)
@@ -82,20 +81,19 @@ class MujocoWorkspace:
                 self.save_snapshot()
 
             if done:
-                values = np.array(val_seq)
-                ret = np.array(rew)
-                for i in reversed(range(len(ret) - 1)):
-                    ret[i] +=rew[i] +ret[i+1] * self.agent.gamma
-                self._train_episode += 1
-                xs = list(range(len(ret)))
-                print("Episode: {}, total numsteps: {}, return: {}".format(self._train_episode, self._train_step, round(info["episode"]["r"][0], 2)))
-                if self.cfg.wandb_log:
-                    wandb.log({"ret_val_diff" : wandb.plot.line_series(
-                    xs=xs,
-                    ys=[values-ret],
-                    keys=columns,
-                    title="Return-value difference")})
+                ret = rew[:]
+                ret[-1] = np.mean(rew[-100:])*99
 
+                for i in reversed(range(len(rew) - 1)):
+                    ret[i] = rew[i] + 0.99 * ret[i+1]
+                xs = list(range(len(ret)))
+                values = np.array(val_seq)
+                print("Episode: {}, total numsteps: {}, return: {}".format(self._train_episode, self._train_step, round(info["episode"]["r"][0], 2)))
+
+                self._train_episode += 1
+                if self.cfg.wandb_log:
+                    plt.plot(xs, ret, xs, values)
+                    wandb.log({"ret_val_diff" : plt})
                     episode_metrics = dict()
                     episode_metrics['episodic_length'] = info["episode"]["l"][0]
                     episode_metrics['episodic_return'] = info["episode"]["r"][0]
@@ -104,7 +102,6 @@ class MujocoWorkspace:
                     wandb.log(episode_metrics, step=self._train_step)
                     rew = []
                     val_seq = []
-
 
                 state, info = self.train_env.reset(seed=self.cfg.seed)
                 initial_state = state
