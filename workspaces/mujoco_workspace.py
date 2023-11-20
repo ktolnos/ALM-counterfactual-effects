@@ -69,7 +69,7 @@ class MujocoWorkspace:
             next_state, reward, done, trunc, info = self.train_env.step(action)
             state_seq.append(state)
             action_seq.append(action)
-            val_seq.append(self.agent.get_value(state, action)[0])
+            val_seq.append(min(self.agent.get_value(state, action)))
             rew.append(reward)
 
             done = done or trunc
@@ -95,7 +95,7 @@ class MujocoWorkspace:
                     ret[i] = rew[i] + self.agent.gamma * ret[i+1]
                 xs = list(range(len(ret)))
                 values = np.array(val_seq)
-                print("Episode: {}, total numsteps: {}, return: {}".format(self._train_episode, self._train_step, round(info["episode"]["r"][0], 2)))
+                print("Episode: {}, total numsteps: {}, return: {}".format(self._train_episode, self._train_step, round(info["episode"]["r"], 2)))
                 self.agent.update_critic_offline(state_seq, action_seq, np.array(ret))
 
                 self._train_episode += 1
@@ -103,9 +103,9 @@ class MujocoWorkspace:
                     plt.plot(xs, ret, xs, values)
                     wandb.log({"ret_val_diff" : plt})
                     episode_metrics = dict()
-                    episode_metrics['episodic_length'] = info["episode"]["l"][0]
-                    episode_metrics['episodic_return'] = info["episode"]["r"][0]
-                    episode_metrics['steps_per_second'] = info["episode"]["l"][0]/(time.time() - episode_start_time)
+                    episode_metrics['episodic_length'] = info["episode"]["l"]
+                    episode_metrics['episodic_return'] = info["episode"]["r"]
+                    episode_metrics['steps_per_second'] = info["episode"]["l"]/(time.time() - episode_start_time)
                     episode_metrics['env_buffer_length'] = len(self.agent.env_buffer)
                     wandb.log(episode_metrics, step=self._train_step)
                 rew = []
