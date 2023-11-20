@@ -108,8 +108,10 @@ class MujocoWorkspace:
                     episode_metrics['steps_per_second'] = info["episode"]["l"][0]/(time.time() - episode_start_time)
                     episode_metrics['env_buffer_length'] = len(self.agent.env_buffer)
                     wandb.log(episode_metrics, step=self._train_step)
-                    rew = []
-                    val_seq = []
+                rew = []
+                val_seq = []
+                state_seq = []
+                action_seq = []
 
                 state, info = self.train_env.reset(seed=self.cfg.seed)
                 initial_state = state
