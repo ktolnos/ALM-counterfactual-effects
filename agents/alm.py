@@ -273,6 +273,21 @@ class AlmAgent(object):
             metrics['mean_true_reward'] = torch.mean(reward_batch).item()
 
         return reward_loss
+        
+    def update_critic_offline(self, x_seq, a_seq, ret_seq):
+        x_seq = torch.from_numpy(x_seq).float().to(self.device)
+        a_seq = torch.from_numpy(a_seq).float().to(self.device)
+        ret_seq = torch.from_numpy(ret_seq).float().to(self.device)
+
+        z_seq = self.encoder(x_seq).sample().detach()
+        Q1, Q2 = self.critic(z_seq, a_seq)
+        loss = (F.mse_loss(Q1, ret_seq) + F.mse_loss(Q2, ret_seq))/2
+        self.critic_opt.zero_grad()
+        loss.backward()
+        critic_grad_norm = torch.nn.utils.clip_grad_norm_(utils.get_parameters(self.critic_list), max_norm=self.max_grad_norm, error_if_nonfinite=True)
+
+        self.critic_opt.step()
+        return 
 
     def _intrinsic_reward_loss(self, z, action_batch, z_next, z_next_prior, log, metrics):
         ip_batch_shape = z.shape[0]
