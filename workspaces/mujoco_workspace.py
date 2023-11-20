@@ -58,13 +58,20 @@ class MujocoWorkspace:
         ret = []
         val_seq= []
         rew = []
+        trains_per_action = 1
+        state_seq = []
+        action_seq = []
 
         for _ in range(1, self.cfg.num_train_steps-self.cfg.explore_steps+1):  
 
             action = self.agent.get_action(state, self._train_step)
             mujoco_state = self.train_env.sim.get_state()
             next_state, reward, done, trunc, info = self.train_env.step(action)
-            
+            state_seq.append(state)
+            action_seq.append(action)
+            val_seq.append(self.agent.get_value(state, action)[0])
+            rew.append(reward)
+
             done = done or trunc
             self._train_step += 1
 
@@ -89,6 +96,7 @@ class MujocoWorkspace:
                 xs = list(range(len(ret)))
                 values = np.array(val_seq)
                 print("Episode: {}, total numsteps: {}, return: {}".format(self._train_episode, self._train_step, round(info["episode"]["r"][0], 2)))
+                self.agent.update_critic_offline(state_seq, action_seq, np.array(ret))
 
                 self._train_episode += 1
                 if self.cfg.wandb_log:
